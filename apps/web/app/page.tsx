@@ -10,6 +10,7 @@ import {
 import { ruleDefinitions } from "@checker/rules";
 import type { Finding, JobStatus, ScopeAnswers } from "@checker/shared";
 import { getFindingResultPresentation, groupFindingsByPriority } from "../lib/finding-presentation";
+import { DEFAULT_WEBSITE_URL, urlValueOnFirstFocus } from "../lib/url-input";
 
 type View = "flow" | "records" | "rules";
 type ReportFilter = "all" | "high" | "medium" | "pass" | "unknown";
@@ -112,7 +113,7 @@ function WebsiteStep({ name, url, setName, setUrl, onNext }: { name: string; url
         <label className="field-label" htmlFor="project-name">项目名称</label>
         <input id="project-name" value={name} onChange={(event) => setName(event.target.value)} maxLength={120} />
         <label className="field-label" htmlFor="website-url">网站 URL</label>
-        <div className="input-with-icon"><Globe /><input id="website-url" value={url} onChange={(event) => setUrl(event.target.value)} inputMode="url" /></div>
+        <div className="input-with-icon"><Globe /><input id="website-url" value={url} onFocus={() => setUrl(urlValueOnFirstFocus(url))} onChange={(event) => setUrl(event.target.value)} inputMode="url" /></div>
         <p className="field-help">仅支持公开的 http／https 网站；本机、内网和特殊端口会被拒绝。</p>
         <div className="setup-actions"><button className="primary-button" type="button" disabled={!canContinue} onClick={onNext}>继续设置检查范围 <ArrowRight weight="bold" /></button></div>
       </div>
@@ -268,7 +269,7 @@ export default function HomePage() {
   const [view, setView] = useState<View>("flow");
   const [step, setStep] = useState(1);
   const [name, setName] = useState("日本站基础检查");
-  const [url, setUrl] = useState("https://example.com");
+  const [url, setUrl] = useState(DEFAULT_WEBSITE_URL);
   const [scope, setScope] = useState<ScopeAnswers>(initialScope);
   const [check, setCheck] = useState<CheckRecord | null>(null);
   const [records, setRecords] = useState<CheckRecord[]>([]);
