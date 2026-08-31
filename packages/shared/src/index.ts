@@ -25,7 +25,7 @@ export interface CrawledPage {
   url: string;
   title: string;
   text: string;
-  kind: "home" | "legal" | "privacy" | "shipping" | "returns" | "terms" | "product" | "contact" | "other";
+  kind: "home" | "legal" | "privacy" | "payment" | "shipping" | "returns" | "terms" | "product" | "contact" | "other";
   linkedFromHome: boolean;
 }
 

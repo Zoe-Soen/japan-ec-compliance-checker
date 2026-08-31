@@ -3,6 +3,7 @@ import { assertSafePublicUrl, isSameSite, type CrawledPage } from "@checker/shar
 
 const priorityPatterns = [
   /特定商取引|特商法|legal|commercial/i,
+  /支払|決済|payment/i,
   /返品|返金|キャンセル|return|refund/i,
   /送料|配送|発送|shipping|delivery/i,
   /privacy|プライバシー|個人情報/i,
@@ -11,16 +12,22 @@ const priorityPatterns = [
   /product|products|商品|item/i,
 ];
 
-export function classifyPage(url: string, title: string, text: string, isHome = false): CrawledPage["kind"] {
+export function classifyPage(url: string, title: string, text: string, isHome = false, linkLabel = ""): CrawledPage["kind"] {
   if (isHome) return "home";
-  const haystack = `${url} ${title} ${text.slice(0, 800)}`;
-  if (/特定商取引|特商法|tokusho|commercial/i.test(haystack)) return "legal";
-  if (/privacy|プライバシー|個人情報保護/i.test(haystack)) return "privacy";
-  if (/返品|返金|キャンセル|return|refund/i.test(haystack)) return "returns";
-  if (/送料|配送|発送|shipping|delivery/i.test(haystack)) return "shipping";
-  if (/利用規約|terms|規約/i.test(haystack)) return "terms";
-  if (/問い合わせ|contact|連絡先/i.test(haystack)) return "contact";
-  if (/product|products|商品|item|collections/i.test(haystack)) return "product";
+  // Page identity must come from its URL, title, or clicked label. Shared headers and
+  // footers often mention every policy page and must not decide the page kind.
+  const identity = `${url} ${title} ${linkLabel}`;
+  if (/privacy|プライバシー|個人情報保護/i.test(identity)) return "privacy";
+  if (/特定商取引|特商法|tokusho|commercial|policies\/company/i.test(identity)) return "legal";
+  if (/支払|決済|payment/i.test(identity)) return "payment";
+  if (/返品|返金|キャンセル|return|refund|exchange/i.test(identity)) return "returns";
+  if (/送料|配送|発送|shipping|delivery/i.test(identity)) return "shipping";
+  if (/利用規約|terms|規約/i.test(identity)) return "terms";
+  if (/問い合わせ|contact|連絡先/i.test(identity)) return "contact";
+  if (/product|products|商品|item|collections|[-/]p-\d+/i.test(identity)) return "product";
+
+  // If URL, title and clicked label provide no identity, keeping the page as
+  // "other" is safer than guessing from shared navigation in its body.
   return "other";
 }
 
@@ -32,6 +39,24 @@ export function linkPriority(url: string, label: string): number {
 
 function cleanText(value: string): string {
   return value.replace(/[\t\r ]+/g, " ").replace(/\n{3,}/g, "\n\n").trim().slice(0, 80_000);
+}
+
+async function readStableBodyText(page: import("playwright-core").Page, timeoutMs: number): Promise<string> {
+  const deadline = Date.now() + Math.min(timeoutMs, 3_000);
+  let previous = "";
+  let stableReads = 0;
+
+  // Dynamic storefronts commonly render policy content after DOMContentLoaded.
+  await page.waitForLoadState("networkidle", { timeout: Math.min(timeoutMs, 1_500) }).catch(() => undefined);
+  while (Date.now() < deadline) {
+    const current = cleanText(await page.locator("body").innerText({ timeout: Math.min(timeoutMs, 5_000) }).catch(() => ""));
+    if (current && current === previous) stableReads += 1;
+    else stableReads = 0;
+    previous = current;
+    if (stableReads >= 1) break;
+    await page.waitForTimeout(200);
+  }
+  return previous;
 }
 
 async function launchBrowser(): Promise<Browser> {
@@ -105,14 +130,14 @@ export async function crawlSite(rawUrl: string, options: CrawlOptions = {}): Pro
         const finalUrl = await assertSafePublicUrl(page.url());
         if (!isSameSite(finalUrl, startUrl)) continue;
         const title = cleanText(await page.title());
-        const bodyText = cleanText(await page.locator("body").innerText({ timeout: 5_000 }).catch(() => ""));
+        const bodyText = await readStableBodyText(page, timeoutMs);
         if (!bodyText) continue;
         const isHome = results.length === 0;
         results.push({
           url: finalUrl.href,
           title,
           text: bodyText,
-          kind: classifyPage(finalUrl.href, title, bodyText, isHome),
+          kind: classifyPage(finalUrl.href, title, bodyText, isHome, item.label),
           linkedFromHome: item.linkedFromHome,
         });
 

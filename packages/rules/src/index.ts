@@ -83,10 +83,44 @@ function pageOf(pages: CrawledPage[], ...kinds: CrawledPage["kind"][]): CrawledP
   return pages.find((page) => kinds.includes(page.kind));
 }
 
-function fieldRule(rule: RuleDefinition, page: CrawledPage | undefined, pattern: RegExp, label: string): Finding {
-  if (!page) return makeFinding(rule, "unknown", undefined, "未发现优先检查页面。", `没有取得能够判断${label}的页面，不能判为通过。`, "low");
-  if (has(page.text, pattern)) return makeFinding(rule, "pass", page, page.text.match(pattern)?.[0] ?? label, `当前页面发现了${label}相关字段。`, "medium");
+function pagesOf(pages: CrawledPage[], ...kinds: CrawledPage["kind"][]): CrawledPage[] {
+  return pages.filter((page) => kinds.includes(page.kind));
+}
+
+function fieldRule(rule: RuleDefinition, candidates: CrawledPage[], pattern: RegExp, label: string): Finding {
+  if (!candidates.length) return makeFinding(rule, "unknown", undefined, "未发现优先检查页面。", `没有取得能够判断${label}的页面，不能判为通过。`, "low");
+  const matchedPage = candidates.find((page) => has(page.text, pattern));
+  if (matchedPage) return makeFinding(rule, "pass", matchedPage, matchedPage.text.match(pattern)?.[0] ?? label, `相关页面发现了${label}字段。`, "medium");
+  const page = candidates[0];
   return makeFinding(rule, "issue", page, `${page.title || "相关页面"}中未发现${label}字段。`, `已发现相关页面，但没有识别到${label}。`, "medium");
+}
+
+interface PatternContext {
+  keyword: string;
+  context: string;
+}
+
+function findAbsoluteExpression(pages: CrawledPage[]): { page: CrawledPage; match: PatternContext } | undefined {
+  const pattern = /100\s?%|絶対|必ず|完全|確実|即効|治る|改善する/g;
+  for (const page of pages) {
+    pattern.lastIndex = 0;
+    let raw: RegExpExecArray | null;
+    while ((raw = pattern.exec(page.text))) {
+      const start = Math.max(0, raw.index - 55);
+      const end = Math.min(page.text.length, raw.index + raw[0].length + 55);
+      const context = clean(page.text.slice(start, end));
+      // Operational promises in shared contact/footer text are not advertising claims.
+      if (/(返信|回答|問い合わせ|連絡|受付順|対応)/.test(context)) continue;
+      return {
+        page,
+        match: {
+          keyword: raw[0],
+          context: `${start > 0 ? "…" : ""}${context}${end < page.text.length ? "…" : ""}`,
+        },
+      };
+    }
+  }
+  return undefined;
 }
 
 function checkoutRule(rule: RuleDefinition, checkoutText: string | undefined, pattern: RegExp, label: string): Finding {
@@ -99,10 +133,13 @@ export function evaluateRules(context: RuleContext): Finding[] {
   const { pages, scope, checkoutText } = context;
   const allText = pages.map((page) => page.text).join("\n");
   const home = pageOf(pages, "home");
-  const legal = pageOf(pages, "legal");
+  const legalPages = pagesOf(pages, "legal");
+  const legal = legalPages[0];
   const privacy = pageOf(pages, "privacy");
-  const shipping = pageOf(pages, "shipping") ?? legal;
-  const returns = pageOf(pages, "returns") ?? legal;
+  const paymentPages = [...pagesOf(pages, "payment"), ...legalPages];
+  const shippingPages = [...pagesOf(pages, "shipping"), ...legalPages];
+  const returnPages = [...pagesOf(pages, "returns"), ...legalPages];
+  const shipping = shippingPages[0];
   const product = pageOf(pages, "product") ?? home;
   const findings = new Map<string, Finding>();
   const add = (finding: Finding) => findings.set(finding.ruleId, finding);
@@ -115,25 +152,25 @@ export function evaluateRules(context: RuleContext): Finding[] {
     ? makeFinding(rule("R02"), "pass", legal, "该页面可以从首页链接到达。", "特商法页面入口可从首页发现。", "high")
     : makeFinding(rule("R02"), legal ? "issue" : "unknown", legal ?? home, "未确认首页存在清楚入口。", legal ? "页面存在，但未确认能从首页容易到达。" : "尚未找到页面，因此无法判断入口。", legal ? "medium" : "low"));
 
-  add(fieldRule(rule("R03"), legal, /販売業者|事業者名|会社名|販売者/, "经营者正式名称"));
+  add(fieldRule(rule("R03"), legalPages, /販売事業者|販売業者|事業者名|会社名|販売者|販売元|運営会社/, "经营者正式名称"));
   add(scope.entity === "individual"
     ? makeFinding(rule("R04"), "not_applicable", legal, "经营主体选择为个人事业者。", "法人代表者规则不适用于本次范围。", "high")
-    : fieldRule(rule("R04"), legal, /代表者|運営責任者|販売責任者|責任者/, "代表者或业务负责人"));
-  add(fieldRule(rule("R05"), legal, /所在地|住所|〒\s*\d{3}[-ー]?\d{4}/, "经营地址"));
-  add(fieldRule(rule("R06"), legal, /電話|TEL|tel|\d{2,4}-\d{2,4}-\d{3,4}/, "联系电话"));
-  add(fieldRule(rule("R07"), product, /[¥￥]\s?[\d,]+|[\d,]+\s?円/, "商品销售价格"));
-  add(fieldRule(rule("R08"), product, /税込|税別|消費税|内税|外税/, "税费表示"));
-  add(fieldRule(rule("R09"), shipping, /送料|配送料|送料無料|shipping/i, "送料"));
+    : fieldRule(rule("R04"), legalPages, /代表者|運営責任者|販売責任者|責任者/, "代表者或业务负责人"));
+  add(fieldRule(rule("R05"), legalPages, /所在地|住所|〒\s*\d{3}[-ー]?\d{4}/, "经营地址"));
+  add(fieldRule(rule("R06"), legalPages, /電話|TEL|tel|\d{2,4}-\d{2,4}-\d{3,4}/, "联系电话"));
+  add(fieldRule(rule("R07"), product ? [product] : [], /[¥￥]\s?[\d,]+|[\d,]+\s?円/, "商品销售价格"));
+  add(fieldRule(rule("R08"), product ? [product] : [], /税込|税別|消費税|内税|外税/, "税费表示"));
+  add(fieldRule(rule("R09"), shippingPages, /送料|配送料|送料無料|shipping/i, "送料"));
 
   const extraCost = pages.find((page) => has(page.text, /手数料|関税|輸入消費税|その他.*費用/));
   add(extraCost
     ? makeFinding(rule("R10"), "pass", extraCost, extraCost.text.match(/手数料|関税|輸入消費税|その他.*費用/)?.[0] ?? "附加费用", "发现了附加费用相关说明。", "medium")
     : makeFinding(rule("R10"), "unknown", legal, "未识别到手续费、关税等说明。", "无法仅凭缺少关键词确认是否确实不存在其他费用。", "low"));
 
-  add(fieldRule(rule("R11"), legal, /支払方法|クレジットカード|銀行振込|代金引換|PayPay|決済方法/, "支付方式"));
-  add(fieldRule(rule("R12"), legal, /支払時期|決済時期|注文時|発送時|引き落とし|前払い|後払い/, "支付时间"));
-  add(fieldRule(rule("R13"), shipping ?? legal, /引渡し時期|発送|配送|お届け|営業日/, "交付时间"));
-  add(fieldRule(rule("R14"), returns, /返品|返金|キャンセル|交換|不良品/, "退货与取消条件"));
+  add(fieldRule(rule("R11"), paymentPages, /支払い?方法|お支払い方法|クレジットカード|銀行振込|代金引換|PayPay|決済方法/, "支付方式"));
+  add(fieldRule(rule("R12"), paymentPages, /支払い?時期|お支払い時期|支払期限|お支払い期限|決済時期|注文時|発送時|引き落とし|前払い|後払い/, "支付时间"));
+  add(fieldRule(rule("R13"), shippingPages, /引渡し時期|発送|配送|お届け|営業日/, "交付时间"));
+  add(fieldRule(rule("R14"), returnPages, /返品|返金|キャンセル|交換|不良品/, "退货与取消条件"));
 
   add(checkoutRule(rule("R15"), checkoutText, /数量|個数|点数|契約期間/, "数量或服务期间"));
   add(checkoutRule(rule("R16"), checkoutText, /合計|総額|お支払い金額|注文金額/, "支付总额"));
@@ -153,9 +190,10 @@ export function evaluateRules(context: RuleContext): Finding[] {
   add(rankPage
     ? makeFinding(rule("R22"), "unknown", rankPage, rankPage.text.match(/No\.?\s?1|第[一1]位|最安|日本一|業界一/iu)?.[0] ?? "排名表达", "发现排名或比较表达，但其调查依据需要人工确认。", "medium")
     : makeFinding(rule("R22"), "not_applicable", undefined, "扫描页面未发现排名或比较表达。", "本次扫描范围内未触发该项。", "medium"));
-  const absolutePage = pages.find((page) => has(page.text, /100\s?%|絶対|必ず|完全|確実|即効|治る|改善する/));
-  add(absolutePage
-    ? makeFinding(rule("R23"), "issue", absolutePage, absolutePage.text.match(/100\s?%|絶対|必ず|完全|確実|即効|治る|改善する/)?.[0] ?? "绝对化表达", "发现需要充分证据支持的绝对化或效果表达。", "medium")
+  const adPages = pages.filter((page) => page.kind === "home" || page.kind === "product");
+  const absoluteExpression = findAbsoluteExpression(adPages);
+  add(absoluteExpression
+    ? makeFinding(rule("R23"), "unknown", absoluteExpression.page, `命中「${absoluteExpression.match.keyword}」：${absoluteExpression.match.context}`, "发现可能属于绝对化或效果表达的上下文，需人工确认语义和依据。", "medium")
     : makeFinding(rule("R23"), "pass", product, "扫描页面未发现预设的绝对化高风险关键词。", "当前自动检查范围内未发现明显绝对化表达。", "medium"));
   const pricePage = pages.find((page) => has(page.text, /通常価格|参考価格|半額|[0-9]+%OFF|割引/));
   add(pricePage
@@ -186,9 +224,17 @@ export function evaluateRules(context: RuleContext): Finding[] {
   const overseas = scope.shipping === "overseas" || scope.shipping === "both";
   add(!overseas
     ? makeFinding(rule("R30"), "not_applicable", shipping, "发货地选择为日本境内。", "跨境配送规则不适用于本次范围。", "high")
-    : shipping && has(shipping.text, /海外|関税|輸入|通関/) && has(shipping.text, /配送|発送|お届け/)
-      ? makeFinding(rule("R30"), "pass", shipping, "发现海外发货及配送费用相关说明。", "页面包含跨境配送基础信息。", "medium")
-      : makeFinding(rule("R30"), "issue", shipping, "未完整识别海外发货、配送时间及关税说明。", "经营范围包含海外发货，但页面信息可能不足。", "medium"));
+    : (() => {
+      const crossBorderPage = shippingPages.find((page) => has(page.text, /海外(?:から|より).{0,30}(?:発送|配送)|海外発送|発送元.{0,30}(?:海外|中国)|(?:中国|韓国|海外).{0,30}(?:から|より).{0,20}(?:発送|配送)/s));
+      const timingPage = shippingPages.find((page) => has(page.text, /配送期間|配送日数|発送.{0,20}営業日|お届け.{0,20}営業日/s));
+      const customsPage = shippingPages.find((page) => has(page.text, /関税|輸入消費税|通関|輸入費用/));
+      if (crossBorderPage && timingPage && customsPage) {
+        return makeFinding(rule("R30"), "pass", crossBorderPage, "发现海外发货地、配送时间及关税或进口费用说明。", "页面包含跨境配送基础信息。", "medium");
+      }
+      if (!shippingPages.length) return makeFinding(rule("R30"), "unknown", undefined, "未取得配送相关页面。", "无法确认跨境配送信息是否齐全。", "low");
+      const missing = [!crossBorderPage && "海外发货地", !timingPage && "配送时间", !customsPage && "关税或进口费用"].filter(Boolean).join("、");
+      return makeFinding(rule("R30"), "issue", shipping, `未识别到：${missing}。`, "经营范围包含海外发货，但部分跨境配送信息未被识别。", "medium");
+    })());
 
   return ruleDefinitions.map((definition) => findings.get(definition.id)!);
 }
