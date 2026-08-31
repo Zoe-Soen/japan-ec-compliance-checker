@@ -9,7 +9,7 @@ import {
 } from "@phosphor-icons/react";
 import { ruleDefinitions } from "@checker/rules";
 import type { Finding, JobStatus, ScopeAnswers } from "@checker/shared";
-import { getFindingResultPresentation } from "../lib/finding-presentation";
+import { getFindingResultPresentation, groupFindingsByPriority } from "../lib/finding-presentation";
 
 type View = "flow" | "records" | "rules";
 type ReportFilter = "all" | "high" | "medium" | "pass" | "unknown";
@@ -46,7 +46,7 @@ async function readJson<T>(response: Response): Promise<T> {
   return data as T;
 }
 
-function Sidebar({ view, onNavigate }: { view: View; onNavigate: (view: View) => void }) {
+function Sidebar({ view, collapsed, onToggle, onNavigate }: { view: View; collapsed: boolean; onToggle: () => void; onNavigate: (view: View) => void }) {
   const items = [
     { key: "flow" as const, label: "新建检查", icon: Plus },
     { key: "records" as const, label: "检查记录", icon: ClockCounterClockwise },
@@ -55,9 +55,10 @@ function Sidebar({ view, onNavigate }: { view: View; onNavigate: (view: View) =>
   return (
     <aside className="sidebar">
       <div className="brand"><ShieldCheck weight="duotone" /><span>证据优先的<br />合规工作台</span></div>
+      <button className="sidebar-toggle" type="button" onClick={onToggle} aria-label={collapsed ? "展开侧边栏" : "收起侧边栏"} title={collapsed ? "展开侧边栏" : "收起侧边栏"}><CaretRight /></button>
       <nav aria-label="主要导航">
         {items.map(({ key, label, icon: Icon }) => (
-          <button className={`nav-item ${view === key ? "active" : ""}`} key={key} type="button" onClick={() => onNavigate(key)}>
+          <button className={`nav-item ${view === key ? "active" : ""}`} key={key} type="button" onClick={() => onNavigate(key)} aria-label={label} title={collapsed ? label : undefined}>
             <Icon weight={view === key ? "fill" : "regular"} /><span>{label}</span>
           </button>
         ))}
@@ -185,17 +186,20 @@ function FindingResultBadge({ finding }: { finding: Finding }) {
 
 function ReportStep({ check, onRetry }: { check: CheckRecord; onRetry: () => void }) {
   const findings = check.findings ?? [];
+  const initialGroups = groupFindingsByPriority(findings);
+  const firstPriorityId = initialGroups[0]?.findings[0]?.ruleId ?? findings[0]?.ruleId ?? "";
   const [filter, setFilter] = useState<ReportFilter>("all");
-  const [selectedId, setSelectedId] = useState(findings[0]?.ruleId ?? "");
+  const [selectedId, setSelectedId] = useState(firstPriorityId);
   const [copied, setCopied] = useState(false);
-  useEffect(() => { if (!selectedId && findings[0]) setSelectedId(findings[0].ruleId); }, [findings, selectedId]);
+  useEffect(() => { if (!selectedId && firstPriorityId) setSelectedId(firstPriorityId); }, [firstPriorityId, selectedId]);
   const filtered = useMemo(() => findings.filter((finding) => {
     if (filter === "all") return true;
     if (filter === "pass") return finding.status === "pass";
     if (filter === "unknown") return finding.status === "unknown";
     return finding.status === "issue" && finding.risk === filter;
   }), [findings, filter]);
-  const selected = findings.find((finding) => finding.ruleId === selectedId) ?? filtered[0] ?? findings[0];
+  const groupedFindings = useMemo(() => groupFindingsByPriority(filtered), [filtered]);
+  const selected = filtered.find((finding) => finding.ruleId === selectedId) ?? groupedFindings[0]?.findings[0] ?? findings.find((finding) => finding.ruleId === selectedId) ?? findings[0];
   const count = (predicate: (finding: Finding) => boolean) => findings.filter(predicate).length;
   const high = count((finding) => finding.status === "issue" && finding.risk === "high");
   const medium = count((finding) => finding.status === "issue" && finding.risk === "medium");
@@ -232,7 +236,7 @@ function ReportStep({ check, onRetry }: { check: CheckRecord; onRetry: () => voi
         <section className="findings-panel">
           <div className="panel-toolbar"><h2>检查结果 <span>（{filtered.length}／{findings.length} 项）</span></h2><label className="filter-control"><select value={filter} onChange={(event) => setFilter(event.target.value as ReportFilter)}><option value="all">全部状态</option><option value="high">高风险问题</option><option value="medium">中风险问题</option><option value="pass">通过</option><option value="unknown">无法确认</option></select><CaretDown /></label></div>
           <div className="finding-table-header"><span>编号</span><span>检查项</span><span>本次风险</span><span>状态</span></div>
-          <div className="finding-list">{filtered.map((finding) => <button className={`finding-row ${selected?.ruleId === finding.ruleId ? "selected" : ""}`} type="button" key={finding.ruleId} onClick={() => setSelectedId(finding.ruleId)}><span>{finding.ruleId}</span><strong>{finding.title}</strong><FindingResultBadge finding={finding} /><span className={`status-${finding.status}`}><StatusMark finding={finding} />{statusLabel[finding.status]}</span><CaretRight /></button>)}</div>
+          <div className="finding-list">{groupedFindings.map((group) => <section className={`finding-group finding-group-${group.key}`} key={group.key}><div className="finding-group-heading"><strong>{group.label}</strong><span>{group.findings.length} 项</span></div>{group.findings.map((finding) => <button className={`finding-row ${selected?.ruleId === finding.ruleId ? "selected" : ""}`} type="button" key={finding.ruleId} onClick={() => setSelectedId(finding.ruleId)}><span>{finding.ruleId}</span><strong>{finding.title}</strong><FindingResultBadge finding={finding} /><span className={`status-${finding.status}`}><StatusMark finding={finding} />{statusLabel[finding.status]}</span><CaretRight /></button>)}</section>)}</div>
         </section>
         {selected ? <aside className="detail-pane">
           <div className="detail-title"><div><strong>{selected.ruleId}</strong><h2>{selected.title}</h2><FindingResultBadge finding={selected} /></div></div>
@@ -271,6 +275,7 @@ export default function HomePage() {
   const [loadingRecords, setLoadingRecords] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const loadCheck = useCallback(async (id: string) => {
     const data = await readJson<{ check: CheckRecord }>(await fetch(`/api/checks/${id}`, { cache: "no-store" }));
@@ -324,12 +329,12 @@ export default function HomePage() {
     await loadCheck(record.id).catch((cause) => setError(cause instanceof Error ? cause.message : "无法读取报告"));
   };
 
-  return <div className="app-shell"><Sidebar view={view} onNavigate={navigate} /><main className="main-surface">
+  return <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}><Sidebar view={view} collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed((current) => !current)} onNavigate={navigate} /><main className="main-surface">
     {view === "flow" && <><FlowHeader step={step} projectName={name} url={url} onStep={setStep} />
       {step === 1 && <WebsiteStep name={name} url={url} setName={setName} setUrl={setUrl} onNext={() => { setError(""); setStep(2); }} />}
       {step === 2 && <ScopeStep scope={scope} setScope={setScope} onBack={() => setStep(1)} onStart={startCheck} busy={busy} error={error} />}
       {step === 3 && <ScanStep check={check} onRetry={retry} onBack={() => setStep(1)} />}
-      {step === 4 && check && <ReportStep check={check} onRetry={retry} />}
+      {step === 4 && check && <ReportStep key={check.id} check={check} onRetry={retry} />}
     </>}
     {view === "records" && <RecordsView records={records} loading={loadingRecords} onRefresh={loadRecords} onOpen={openRecord} onNew={() => { setView("flow"); setStep(1); setCheck(null); }} />}
     {view === "rules" && <RulesView />}
