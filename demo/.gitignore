@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.DS_Store
+
+# Intermediate visual QA captures retained locally for comparison work.
+implementation-report.png
+implementation-report-v2.png
+design-comparison.png
