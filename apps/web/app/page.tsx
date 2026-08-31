@@ -9,6 +9,7 @@ import {
 } from "@phosphor-icons/react";
 import { ruleDefinitions } from "@checker/rules";
 import type { Finding, JobStatus, ScopeAnswers } from "@checker/shared";
+import { getFindingResultPresentation } from "../lib/finding-presentation";
 
 type View = "flow" | "records" | "rules";
 type ReportFilter = "all" | "high" | "medium" | "pass" | "unknown";
@@ -37,7 +38,6 @@ interface CheckRecord {
 
 const steps = ["网站信息", "检查范围", "自动扫描", "风险报告"];
 const initialScope: ScopeAnswers = { location: "overseas", entity: "company", category: "ordinary", sales: "single", shipping: "overseas" };
-const riskLabel = { high: "高风险", medium: "中风险", low: "低风险" } as const;
 const statusLabel = { pass: "通过", issue: "问题", unknown: "待确认", not_applicable: "不适用" } as const;
 
 async function readJson<T>(response: Response): Promise<T> {
@@ -178,6 +178,11 @@ function StatusMark({ finding }: { finding: Finding }) {
   return <Info weight="fill" />;
 }
 
+function FindingResultBadge({ finding }: { finding: Finding }) {
+  const presentation = getFindingResultPresentation(finding);
+  return <span className={`result-pill result-${presentation.tone}`}>{presentation.label}</span>;
+}
+
 function ReportStep({ check, onRetry }: { check: CheckRecord; onRetry: () => void }) {
   const findings = check.findings ?? [];
   const [filter, setFilter] = useState<ReportFilter>("all");
@@ -199,7 +204,10 @@ function ReportStep({ check, onRetry }: { check: CheckRecord; onRetry: () => voi
 
   const exportReport = () => {
     const escape = (value: string) => value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[char]!));
-    const rows = findings.map((finding) => `<article><h2>${finding.ruleId}｜${escape(finding.title)}</h2><p><b>${riskLabel[finding.risk]}／${statusLabel[finding.status]}</b></p><p>${escape(finding.explanation)}</p><p><b>证据：</b>${escape(finding.evidence)}</p><p><b>建议：</b>${escape(finding.recommendation)}</p><p><b>依据：</b>${escape(finding.basis)}</p></article>`).join("");
+    const rows = findings.map((finding) => {
+      const result = getFindingResultPresentation(finding);
+      return `<article><h2>${finding.ruleId}｜${escape(finding.title)}</h2><p><b>${result.label}／${statusLabel[finding.status]}</b></p><p>${escape(finding.explanation)}</p><p><b>证据：</b>${escape(finding.evidence)}</p><p><b>建议：</b>${escape(finding.recommendation)}</p><p><b>依据：</b>${escape(finding.basis)}</p></article>`;
+    }).join("");
     const html = `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>${escape(check.projectName)} 整改报告</title><style>body{font:15px/1.7 sans-serif;max-width:900px;margin:40px auto;color:#162536}article{border-top:1px solid #ccd5db;padding:18px 0}h1{color:#087d7b}h2{font-size:18px}</style><h1>${escape(check.projectName)}｜风险检查报告</h1><p>${escape(check.url)}｜规则版本 ${escape(check.ruleVersion)}｜高风险 ${high}｜中风险 ${medium}</p>${rows}<p>本报告是风险筛查结果，不构成法律意见或合规认证。</p></html>`;
     const url = URL.createObjectURL(new Blob([html], { type: "text/html;charset=utf-8" }));
     const anchor = document.createElement("a"); anchor.href = url; anchor.download = `${check.projectName}-整改报告.html`; anchor.click(); URL.revokeObjectURL(url);
@@ -223,11 +231,11 @@ function ReportStep({ check, onRetry }: { check: CheckRecord; onRetry: () => voi
       <div className="report-workspace">
         <section className="findings-panel">
           <div className="panel-toolbar"><h2>检查结果 <span>（{filtered.length}／{findings.length} 项）</span></h2><label className="filter-control"><select value={filter} onChange={(event) => setFilter(event.target.value as ReportFilter)}><option value="all">全部状态</option><option value="high">高风险问题</option><option value="medium">中风险问题</option><option value="pass">通过</option><option value="unknown">无法确认</option></select><CaretDown /></label></div>
-          <div className="finding-table-header"><span>编号</span><span>检查项</span><span>风险</span><span>状态</span></div>
-          <div className="finding-list">{filtered.map((finding) => <button className={`finding-row ${selected?.ruleId === finding.ruleId ? "selected" : ""}`} type="button" key={finding.ruleId} onClick={() => setSelectedId(finding.ruleId)}><span>{finding.ruleId}</span><strong>{finding.title}</strong><span className={`risk-pill risk-${finding.risk}`}>{riskLabel[finding.risk]}</span><span className={`status-${finding.status}`}><StatusMark finding={finding} />{statusLabel[finding.status]}</span><CaretRight /></button>)}</div>
+          <div className="finding-table-header"><span>编号</span><span>检查项</span><span>本次风险</span><span>状态</span></div>
+          <div className="finding-list">{filtered.map((finding) => <button className={`finding-row ${selected?.ruleId === finding.ruleId ? "selected" : ""}`} type="button" key={finding.ruleId} onClick={() => setSelectedId(finding.ruleId)}><span>{finding.ruleId}</span><strong>{finding.title}</strong><FindingResultBadge finding={finding} /><span className={`status-${finding.status}`}><StatusMark finding={finding} />{statusLabel[finding.status]}</span><CaretRight /></button>)}</div>
         </section>
         {selected ? <aside className="detail-pane">
-          <div className="detail-title"><div><strong>{selected.ruleId}</strong><h2>{selected.title}</h2><span className={`risk-pill risk-${selected.risk}`}>{riskLabel[selected.risk]}</span></div></div>
+          <div className="detail-title"><div><strong>{selected.ruleId}</strong><h2>{selected.title}</h2><FindingResultBadge finding={selected} /></div></div>
           <dl className="detail-sections">
             <div><dt>页面来源</dt><dd>{selected.sourceUrl ? <a href={selected.sourceUrl} target="_blank" rel="noreferrer">{selected.sourceUrl}<ArrowSquareOut /></a> : "没有取得可定位页面"}</dd></div>
             <div><dt>页面证据</dt><dd className="evidence-box">{selected.evidence}</dd></div>

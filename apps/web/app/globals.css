@@ -178,10 +178,11 @@ svg { flex: 0 0 auto; }
 .finding-row > strong { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 8px; }
 .finding-row > span:nth-child(4) { display: inline-flex; align-items: center; gap: 5px; }
 .finding-row > span:nth-child(4) svg { width: 14px; height: 14px; }
-.risk-pill { display: inline-flex; width: fit-content; align-items: center; min-height: 21px; padding: 0 7px; border-radius: 999px; font-size: 10px; font-weight: 720; white-space: nowrap; }
-.risk-high { color: var(--red); background: var(--red-soft); }
-.risk-medium { color: var(--amber); background: var(--amber-soft); }
-.risk-low { color: #687587; background: #eef1f3; }
+.result-pill { display: inline-flex; width: fit-content; align-items: center; min-height: 21px; padding: 0 7px; border-radius: 999px; font-size: 10px; font-weight: 720; white-space: nowrap; }
+.result-high { color: var(--red); background: var(--red-soft); }
+.result-medium { color: var(--amber); background: var(--amber-soft); }
+.result-low, .result-pending, .result-not-applicable { color: #687587; background: #eef1f3; }
+.result-clear { color: var(--green); background: var(--green-soft); }
 .status-issue { color: var(--red); }
 .status-pass { color: var(--green); }
 .status-unknown, .status-not_applicable { color: #667386; }
