@@ -35,6 +35,11 @@ required_decisions=(
   "不采用 Electron"
   "SSRF"
   "无法自动确认"
+  "site_full"
+  "product_quick"
+  "recheck"
+  "Web SaaS + 按次额度包"
+  "用量台账"
 )
 
 for decision in "${required_decisions[@]}"; do
