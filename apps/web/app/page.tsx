@@ -10,7 +10,7 @@ import {
 import { ruleDefinitions } from "@checker/rules";
 import type { Finding, JobStatus, ScopeAnswers } from "@checker/shared";
 import { getFindingResultPresentation, groupFindingsByPriority } from "../lib/finding-presentation";
-import { DEFAULT_WEBSITE_URL, urlValueOnFirstFocus } from "../lib/url-input";
+import { DEFAULT_WEBSITE_URL, isWebsiteUrlReady, normalizeWebsiteUrlInput, urlValueOnFirstFocus } from "../lib/url-input";
 
 type View = "flow" | "records" | "rules";
 type ReportFilter = "all" | "high" | "medium" | "pass" | "unknown";
@@ -104,7 +104,7 @@ function FlowHeader({ step, projectName, url, onStep }: { step: number; projectN
 }
 
 function WebsiteStep({ name, url, setName, setUrl, onNext }: { name: string; url: string; setName: (value: string) => void; setUrl: (value: string) => void; onNext: () => void }) {
-  const canContinue = name.trim().length > 0 && /^https?:\/\//i.test(url);
+  const canContinue = name.trim().length > 0 && isWebsiteUrlReady(url);
   return (
     <section className="setup-screen">
       <div className="setup-main">
@@ -113,7 +113,7 @@ function WebsiteStep({ name, url, setName, setUrl, onNext }: { name: string; url
         <label className="field-label" htmlFor="project-name">项目名称</label>
         <input id="project-name" value={name} onChange={(event) => setName(event.target.value)} maxLength={120} />
         <label className="field-label" htmlFor="website-url">网站 URL</label>
-        <div className="input-with-icon"><Globe /><input id="website-url" value={url} onFocus={() => setUrl(urlValueOnFirstFocus(url))} onChange={(event) => setUrl(event.target.value)} inputMode="url" /></div>
+        <div className="input-with-icon"><Globe /><input id="website-url" value={url} onFocus={() => setUrl(urlValueOnFirstFocus(url))} onClick={(event) => event.currentTarget.select()} onBlur={(event) => setUrl(normalizeWebsiteUrlInput(event.currentTarget.value))} onChange={(event) => setUrl(event.target.value)} inputMode="url" /></div>
         <p className="field-help">仅支持公开的 http／https 网站；本机、内网和特殊端口会被拒绝。</p>
         <div className="setup-actions"><button className="primary-button" type="button" disabled={!canContinue} onClick={onNext}>继续设置检查范围 <ArrowRight weight="bold" /></button></div>
       </div>
