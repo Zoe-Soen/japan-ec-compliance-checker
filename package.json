@@ -1,0 +1,38 @@
+{
+  "name": "japan-ec-compliance-checker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "setup:local": "npm run db:up && npm run db:migrate",
+    "db:up": "docker compose up -d db",
+    "db:down": "docker compose down",
+    "db:migrate": "node --env-file=.env.local scripts/migrate.mjs",
+    "dev:web": "next dev apps/web --hostname 0.0.0.0 --port 4173",
+    "dev:worker": "node --env-file=.env.local node_modules/tsx/dist/cli.mjs watch apps/worker/src/index.ts",
+    "dev": "concurrently --kill-others -n web,worker -c cyan,green \"npm:dev:web\" \"npm:dev:worker\"",
+    "build": "next build apps/web",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test:unit": "vitest run",
+    "test:db": "node --env-file=.env.local tests/test_database.mjs",
+    "test:docs": "bash tests/test_mvp_document.sh && bash tests/test_technical_document.sh && bash tests/test_monetization_document.sh",
+    "test": "npm run test:unit && npm run test:docs"
+  },
+  "devDependencies": {
+    "@types/node": "26.4.0",
+    "@types/pg": "8.23.1",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "concurrently": "10.0.5",
+    "tsx": "4.23.13",
+    "typescript": "7.0.2",
+    "vitest": "4.1.11"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

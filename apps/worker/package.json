@@ -1,0 +1,13 @@
+{
+  "name": "@checker/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@checker/db": "*",
+    "@checker/rules": "*",
+    "@checker/shared": "*",
+    "cheerio": "1.2.0",
+    "playwright-core": "1.62.1"
+  }
+}

@@ -1,0 +1,19 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: checker
+      POSTGRES_USER: checker
+      POSTGRES_PASSWORD: checker_local
+    ports:
+      - "54329:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U checker -d checker"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - checker_pg_data:/var/lib/postgresql/data
+
+volumes:
+  checker_pg_data:
